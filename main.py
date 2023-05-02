@@ -299,8 +299,13 @@ if __name__ == "__main__":
         "y": list(test_labels)
     })
 
-    attacker = OpenAttack.attackers.TextFoolerAttacker()  # TODO: change
-    adversarial_samples = attack(victim, dataset_for_attack, attacker)
+    attacker_tf = OpenAttack.attackers.TextFoolerAttacker()
+    attacker_tb = OpenAttack.attackers.TextBuggerAttacker()
+    attacker_bae = OpenAttack.attackers.BAEAttacker()
+    x = attack(victim, dataset_for_attack, attacker_tf)
+    y = attack(victim, dataset_for_attack, attacker_tb)
+    z = attack(victim, dataset_for_attack, attacker_bae)
+    adversarial_samples = x  # TODO: change here (could be y+z for transferable AT)
     # note down performance
 
     # adversarial training
@@ -329,7 +334,9 @@ if __name__ == "__main__":
     finetuned_model = model
 
     # recheck the robustness by applying attack again and measure robustness
-    attack(finetuned_model, dataset_for_attack, attacker)
+    attack(finetuned_model, dataset_for_attack, attacker_tf)
+    attack(finetuned_model, dataset_for_attack, attacker_tb)
+    attack(finetuned_model, dataset_for_attack, attacker_bae)
 
 
 
