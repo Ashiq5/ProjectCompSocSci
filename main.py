@@ -109,6 +109,50 @@ class BertClassifier(nn.Module):
         return loss, cls_output
 
 
+def load_glove():
+    from torchtext.vocab import GloVe
+
+    # Define the embedding dimension and the GloVe name
+    embedding_dim = 100
+    glove_name = '6B'
+
+    # Load the pre-trained GloVe embeddings
+    glove = GloVe(name=glove_name, dim=embedding_dim)
+
+    # Create a dictionary mapping words to their corresponding indices in the embedding matrix
+    word_to_idx = {word: idx for idx, word in enumerate(glove.itos)}
+
+    # Create the embedding matrix as a PyTorch tensor
+    embedding_matrix = torch.tensor(glove.vectors)
+    return  embedding_matrix
+
+class biGRU_GloVe_CNN(nn.Module):
+    def __init__(self, embedding_matrix, num_classes, max_seq_length, filter_sizes, num_filters, hidden_dim, dropout_prob):
+        super(biGRU_GloVe_CNN, self).__init__()
+        self.embedding = nn.Embedding.from_pretrained(torch.FloatTensor(embedding_matrix))
+        self.gru = nn.GRU(embedding_dim, hidden_dim, bidirectional=True, batch_first=True)
+        self.conv1d_list = nn.ModuleList([nn.Conv1d(in_channels=2*hidden_dim, out_channels=num_filters, kernel_size=fs) for fs in filter_sizes])
+        self.max_pool_list = nn.ModuleList([nn.MaxPool1d(kernel_size=max_seq_length-fs+1) for fs in filter_sizes])
+        self.dropout = nn.Dropout(p=dropout_prob)
+        self.fc = nn.Linear(len(filter_sizes)*num_filters, num_classes)
+
+    def forward(self, x):
+        x = self.embedding(x)
+        x, _ = self.gru(x)
+        x = x.permute(0, 2, 1)  # Swap dimensions for convolutional layer
+        conv_out_list = []
+        for i in range(len(self.conv1d_list)):
+            conv_out = self.conv1d_list[i](x)
+            relu_out = F.relu(conv_out)
+            max_pool_out = self.max_pool_list[i](relu_out)
+            conv_out_list.append(max_pool_out)
+        x = torch.cat(conv_out_list, dim=1)
+        x = x.view(x.size(0), -1)
+        x = self.dropout(x)
+        x = self.fc(x)
+        return x
+
+
 def train(model, iterator, optimizer, scheduler):
     model.train()  # set train mode
     total_loss = 0
@@ -248,7 +292,18 @@ if __name__ == "__main__":
           len(test_iterator_for_attack))
 
     # load model
-    model = BertClassifier(BertModel.from_pretrained(bert_model_name), 2).to(device)
+    model = BertClassifier(BertModel.from_pretrained(bert_model_name), 2).to(device)  # TODO: change to BiGRU and uncomment next few lines
+
+    # embedding_matrix = load_glove()
+    # num_classes = 2
+    # max_seq_length = 100
+    # filter_sizes = [3, 4, 5]
+    # num_filters = 32
+    # hidden_dim = 64
+    # dropout_prob = 0.5
+    # batch_size = 32
+    # input_seq = torch.ones((batch_size, max_seq_length), dtype=torch.long)
+    # model = biGRU_GloVe_CNN(embedding_matrix, num_classes, max_seq_length, filter_sizes, num_filters, hidden_dim, dropout_prob)
 
     # load others
     no_decay = ['bias', 'LayerNorm.weight']  # no deacy parameters
@@ -302,10 +357,12 @@ if __name__ == "__main__":
     attacker_tf = OpenAttack.attackers.TextFoolerAttacker()
     attacker_tb = OpenAttack.attackers.TextBuggerAttacker()
     attacker_bae = OpenAttack.attackers.BAEAttacker()
+    attacker_pso = OpenAttack.attackers.PSOAttacker()
     x = attack(victim, dataset_for_attack, attacker_tf)
     y = attack(victim, dataset_for_attack, attacker_tb)
     z = attack(victim, dataset_for_attack, attacker_bae)
-    adversarial_samples = x  # TODO: change here (could be y+z for transferable AT)
+    w = attack(victim, dataset_for_attack, attacker_pso)
+    adversarial_samples = x  # TODO: change here (could be y+z+w for transferable AT)
     # note down performance
 
     # adversarial training
